@@ -1,0 +1,26 @@
+# Build outputs
+[Bb]in/
+[Oo]bj/
+
+# IDE and user-specific files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Test artifacts
+TestResults/
+
+# NuGet
+*.nupkg
+
+# OS files
+.DS_Store
+
+# Environment files
+.env
+.env.*
+!.env.example
