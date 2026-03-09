@@ -203,6 +203,134 @@ public sealed class YouTubeUploader
         await updateRequest.ExecuteAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<CreatePlaylistResult> CreatePlaylistAsync(CreatePlaylistCommand command, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(command.Title))
+        {
+            throw new ToolExecutionException("title is required.", Protocol.JsonRpcError.InvalidParamsCode);
+        }
+
+        using var service = await _clientFactory.CreateAsync(cancellationToken).ConfigureAwait(false);
+
+        var playlist = new Playlist
+        {
+            Snippet = new PlaylistSnippet
+            {
+                Title = command.Title.Trim(),
+                Description = command.Description
+            },
+            Status = new PlaylistStatus
+            {
+                PrivacyStatus = command.Privacy
+            }
+        };
+
+        Playlist? created;
+        try
+        {
+            var request = service.Playlists.Insert(playlist, "snippet,status");
+            created = await request.ExecuteAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new ToolExecutionException(
+                $"Failed to create playlist: {ex.Message}",
+                Protocol.JsonRpcError.ServerErrorCode);
+        }
+
+        var playlistId = created?.Id;
+        if (string.IsNullOrWhiteSpace(playlistId))
+        {
+            throw new ToolExecutionException("Playlist was created but playlist id was not returned.");
+        }
+
+        return new CreatePlaylistResult(
+            PlaylistId: playlistId,
+            Title: created?.Snippet?.Title ?? command.Title.Trim(),
+            Privacy: created?.Status?.PrivacyStatus ?? command.Privacy,
+            Url: $"https://www.youtube.com/playlist?list={playlistId}");
+    }
+
+    public async Task<AddVideosToPlaylistResult> AddVideosToPlaylistAsync(AddVideosToPlaylistCommand command, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(command.PlaylistId))
+        {
+            throw new ToolExecutionException("playlist_id is required.", Protocol.JsonRpcError.InvalidParamsCode);
+        }
+
+        if (command.VideoIds.Count == 0)
+        {
+            throw new ToolExecutionException("video_ids must contain at least one item.", Protocol.JsonRpcError.InvalidParamsCode);
+        }
+
+        using var service = await _clientFactory.CreateAsync(cancellationToken).ConfigureAwait(false);
+
+        var addedItems = new List<AddedPlaylistItemResult>(command.VideoIds.Count);
+
+        for (var index = 0; index < command.VideoIds.Count; index++)
+        {
+            var videoId = command.VideoIds[index]?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(videoId))
+            {
+                throw new ToolExecutionException(
+                    $"video_ids[{index}] cannot be empty.",
+                    Protocol.JsonRpcError.InvalidParamsCode);
+            }
+
+            var playlistItemSnippet = new PlaylistItemSnippet
+            {
+                PlaylistId = command.PlaylistId.Trim(),
+                ResourceId = new ResourceId
+                {
+                    Kind = "youtube#video",
+                    VideoId = videoId
+                }
+            };
+
+            if (command.Position.HasValue)
+            {
+                playlistItemSnippet.Position = command.Position.Value + index;
+            }
+
+            var playlistItem = new PlaylistItem
+            {
+                Snippet = playlistItemSnippet
+            };
+
+            PlaylistItem? inserted;
+            try
+            {
+                var request = service.PlaylistItems.Insert(playlistItem, "snippet");
+                inserted = await request.ExecuteAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                throw new ToolExecutionException(
+                    $"Failed to add video '{videoId}' to playlist: {ex.Message}",
+                    Protocol.JsonRpcError.ServerErrorCode,
+                    new { playlist_id = command.PlaylistId, video_id = videoId, index });
+            }
+
+            var playlistItemId = inserted?.Id;
+            if (string.IsNullOrWhiteSpace(playlistItemId))
+            {
+                throw new ToolExecutionException(
+                    "Playlist item id was not returned.",
+                    Protocol.JsonRpcError.ServerErrorCode,
+                    new { playlist_id = command.PlaylistId, video_id = videoId, index });
+            }
+
+            addedItems.Add(new AddedPlaylistItemResult(
+                VideoId: videoId,
+                PlaylistItemId: playlistItemId,
+                Position: inserted?.Snippet?.Position));
+        }
+
+        return new AddVideosToPlaylistResult(
+            PlaylistId: command.PlaylistId.Trim(),
+            ItemsAdded: addedItems);
+    }
+
     private static string GetVideoMimeType(string path)
     {
         return Path.GetExtension(path).ToLowerInvariant() switch

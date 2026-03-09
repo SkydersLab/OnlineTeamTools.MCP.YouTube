@@ -119,6 +119,14 @@ public static class Program
 
     private static void LoadDotEnvIfPresent()
     {
+        var protectedKeys = Environment.GetEnvironmentVariables()
+            .Keys
+            .Cast<object>()
+            .Select(key => key?.ToString())
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Select(key => key!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         foreach (var path in GetDotEnvCandidates())
         {
             if (!File.Exists(path))
@@ -126,47 +134,15 @@ public static class Program
                 continue;
             }
 
-            foreach (var line in File.ReadLines(path))
-            {
-                var trimmed = line.Trim();
-                if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith('#'))
-                {
-                    continue;
-                }
-
-                var separatorIndex = trimmed.IndexOf('=');
-                if (separatorIndex <= 0)
-                {
-                    continue;
-                }
-
-                var key = trimmed[..separatorIndex].Trim();
-                var value = trimmed[(separatorIndex + 1)..].Trim();
-
-                if (value.Length >= 2 &&
-                    ((value.StartsWith('"') && value.EndsWith('"')) ||
-                     (value.StartsWith('\'') && value.EndsWith('\''))))
-                {
-                    value = value[1..^1];
-                }
-
-                if (string.IsNullOrWhiteSpace(key))
-                {
-                    continue;
-                }
-
-                if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(key)))
-                {
-                    Environment.SetEnvironmentVariable(key, value);
-                }
-            }
+            ApplyDotEnv(path, protectedKeys);
         }
     }
 
     private static IReadOnlyList<string> GetDotEnvCandidates()
     {
-        var candidates = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var localCandidates = new List<string>();
+        var fallbackCandidates = new List<string>();
 
         static void AddCandidate(HashSet<string> seenSet, List<string> list, string path)
         {
@@ -177,19 +153,67 @@ public static class Program
             }
         }
 
-        var currentDirectory = Directory.GetCurrentDirectory();
-        AddCandidate(seen, candidates, Path.Combine(currentDirectory, ".env"));
-
-        var baseDirectory = AppContext.BaseDirectory;
-        AddCandidate(seen, candidates, Path.Combine(baseDirectory, ".env"));
-
-        var directory = new DirectoryInfo(baseDirectory);
-        for (var depth = 0; depth < 8 && directory is not null; depth++)
+        static void AddLocalAndParentCandidates(
+            HashSet<string> seenSet,
+            List<string> localList,
+            List<string> fallbackList,
+            string directory)
         {
-            AddCandidate(seen, candidates, Path.Combine(directory.FullName, ".env"));
-            directory = directory.Parent;
+            var fullDirectory = Path.GetFullPath(directory);
+            AddCandidate(seenSet, localList, Path.Combine(fullDirectory, ".env"));
+            AddCandidate(seenSet, localList, Path.Combine(fullDirectory, ".env.local"));
+
+            var parentDirectory = Directory.GetParent(fullDirectory)?.FullName;
+            if (parentDirectory is not null)
+            {
+                AddCandidate(seenSet, fallbackList, Path.Combine(parentDirectory, ".env"));
+            }
         }
 
-        return candidates;
+        AddLocalAndParentCandidates(seen, localCandidates, fallbackCandidates, Directory.GetCurrentDirectory());
+        AddLocalAndParentCandidates(seen, localCandidates, fallbackCandidates, AppContext.BaseDirectory);
+
+        var existingLocal = localCandidates.Where(File.Exists).ToList();
+        if (existingLocal.Count > 0)
+        {
+            return existingLocal;
+        }
+
+        return fallbackCandidates.Where(File.Exists).ToList();
+    }
+
+    private static void ApplyDotEnv(string path, IReadOnlySet<string> protectedKeys)
+    {
+        foreach (var line in File.ReadLines(path))
+        {
+            var trimmed = line.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith('#'))
+            {
+                continue;
+            }
+
+            var separatorIndex = trimmed.IndexOf('=');
+            if (separatorIndex <= 0)
+            {
+                continue;
+            }
+
+            var key = trimmed[..separatorIndex].Trim();
+            var value = trimmed[(separatorIndex + 1)..].Trim();
+
+            if (value.Length >= 2 &&
+                ((value.StartsWith('"') && value.EndsWith('"')) ||
+                 (value.StartsWith('\'') && value.EndsWith('\''))))
+            {
+                value = value[1..^1];
+            }
+
+            if (string.IsNullOrWhiteSpace(key) || protectedKeys.Contains(key))
+            {
+                continue;
+            }
+
+            Environment.SetEnvironmentVariable(key, value);
+        }
     }
 }

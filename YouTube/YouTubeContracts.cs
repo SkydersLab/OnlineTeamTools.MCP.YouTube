@@ -30,3 +30,35 @@ public sealed record VideoInfoResult(
     string Privacy,
     string Title,
     string Url);
+
+public sealed record CreatePlaylistCommand(
+    string Title,
+    string? Description,
+    string Privacy);
+
+public sealed record CreatePlaylistResult(
+    string PlaylistId,
+    string Title,
+    string Privacy,
+    string Url);
+
+public sealed record AddVideosToPlaylistCommand(
+    string PlaylistId,
+    IReadOnlyList<string> VideoIds,
+    int? Position);
+
+public sealed record AddedPlaylistItemResult(
+    string VideoId,
+    string PlaylistItemId,
+    long? Position);
+
+public sealed record AddVideosToPlaylistResult(
+    string PlaylistId,
+    IReadOnlyList<AddedPlaylistItemResult> ItemsAdded);
+
+public sealed record PlaylistInfoResult(
+    string PlaylistId,
+    string Title,
+    string Privacy,
+    long? ItemCount,
+    string Url);

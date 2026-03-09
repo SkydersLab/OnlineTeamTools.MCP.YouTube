@@ -44,4 +44,35 @@ public sealed class YouTubeVideoReader
             Title: video.Snippet?.Title ?? string.Empty,
             Url: $"https://youtu.be/{videoId}");
     }
+
+    public async Task<PlaylistInfoResult> GetPlaylistAsync(string playlistId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(playlistId))
+        {
+            throw new ToolExecutionException("playlist_id is required.", Protocol.JsonRpcError.InvalidParamsCode);
+        }
+
+        using var service = await _clientFactory.CreateAsync(cancellationToken).ConfigureAwait(false);
+
+        var request = service.Playlists.List("snippet,status,contentDetails");
+        request.Id = playlistId.Trim();
+
+        var response = await request.ExecuteAsync(cancellationToken).ConfigureAwait(false);
+        var playlist = response.Items?.FirstOrDefault();
+
+        if (playlist is null)
+        {
+            throw new ToolExecutionException(
+                "Playlist not found.",
+                Protocol.JsonRpcError.ServerErrorCode,
+                new { playlist_id = playlistId });
+        }
+
+        return new PlaylistInfoResult(
+            PlaylistId: playlist.Id ?? playlistId.Trim(),
+            Title: playlist.Snippet?.Title ?? string.Empty,
+            Privacy: playlist.Status?.PrivacyStatus ?? "unknown",
+            ItemCount: playlist.ContentDetails?.ItemCount,
+            Url: $"https://www.youtube.com/playlist?list={playlist.Id ?? playlistId.Trim()}");
+    }
 }

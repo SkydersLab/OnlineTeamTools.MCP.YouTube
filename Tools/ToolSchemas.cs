@@ -4,6 +4,41 @@ namespace OnlineTeamTools.MCP.YouTube.Tools;
 
 public static class ToolSchemas
 {
+    public static JsonNode CreatePlaylist => Parse("""
+    {
+      "type":"object",
+      "properties":{
+        "title":{"type":"string"},
+        "description":{"type":["string","null"]},
+        "privacy":{"type":"string","enum":["private","unlisted","public"],"default":"private"}
+      },
+      "required":["title"],
+      "additionalProperties":false
+    }
+    """);
+
+    public static JsonNode AddVideosToPlaylist => Parse("""
+    {
+      "type":"object",
+      "properties":{
+        "playlist_id":{"type":"string"},
+        "video_ids":{"type":"array","items":{"type":"string"}},
+        "position":{"type":["integer","null"],"description":"Optional zero-based insertion start index."}
+      },
+      "required":["playlist_id","video_ids"],
+      "additionalProperties":false
+    }
+    """);
+
+    public static JsonNode GetPlaylist => Parse("""
+    {
+      "type":"object",
+      "properties":{"playlist_id":{"type":"string"}},
+      "required":["playlist_id"],
+      "additionalProperties":false
+    }
+    """);
+
     public static JsonNode UploadVideo => Parse("""
     {
       "type":"object",

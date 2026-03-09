@@ -52,6 +52,30 @@ public sealed class ToolDispatcher
                     InputSchema = ToolSchemas.UploadThumbnail
                 },
                 UploadThumbnailAsync),
+            ["youtube.create_playlist"] = new ToolEntry(
+                new ToolDefinition
+                {
+                    Name = "youtube.create_playlist",
+                    Description = "Create a YouTube playlist.",
+                    InputSchema = ToolSchemas.CreatePlaylist
+                },
+                CreatePlaylistAsync),
+            ["youtube.add_videos_to_playlist"] = new ToolEntry(
+                new ToolDefinition
+                {
+                    Name = "youtube.add_videos_to_playlist",
+                    Description = "Add one or more videos to a playlist.",
+                    InputSchema = ToolSchemas.AddVideosToPlaylist
+                },
+                AddVideosToPlaylistAsync),
+            ["youtube.get_playlist"] = new ToolEntry(
+                new ToolDefinition
+                {
+                    Name = "youtube.get_playlist",
+                    Description = "Get basic details for a playlist.",
+                    InputSchema = ToolSchemas.GetPlaylist
+                },
+                GetPlaylistAsync),
             ["youtube.update_metadata"] = new ToolEntry(
                 new ToolDefinition
                 {
@@ -244,6 +268,80 @@ public sealed class ToolDispatcher
         return new { ok = true };
     }
 
+    private async Task<object> CreatePlaylistAsync(JsonElement arguments, object? requestId, CancellationToken cancellationToken)
+    {
+        EnsureAllowedProperties(arguments, new HashSet<string>(StringComparer.Ordinal)
+        {
+            "title",
+            "description",
+            "privacy"
+        });
+
+        var title = GetRequiredString(arguments, "title");
+        var description = GetOptionalString(arguments, "description");
+        var privacy = arguments.TryGetProperty("privacy", out var privacyProperty)
+            ? ParsePrivacy(privacyProperty)
+            : ResolveDefaultPrivacy();
+
+        var command = new CreatePlaylistCommand(
+            Title: title,
+            Description: description,
+            Privacy: privacy);
+
+        var result = await _uploader.CreatePlaylistAsync(command, cancellationToken).ConfigureAwait(false);
+
+        _logger.Info("Playlist created", ("id", requestId), ("playlist_id", result.PlaylistId));
+        return new
+        {
+            playlist_id = result.PlaylistId,
+            title = result.Title,
+            privacy = result.Privacy,
+            url = result.Url
+        };
+    }
+
+    private async Task<object> AddVideosToPlaylistAsync(JsonElement arguments, object? requestId, CancellationToken cancellationToken)
+    {
+        EnsureAllowedProperties(arguments, new HashSet<string>(StringComparer.Ordinal)
+        {
+            "playlist_id",
+            "video_ids",
+            "position"
+        });
+
+        var playlistId = GetRequiredString(arguments, "playlist_id");
+        var videoIds = GetOptionalStringArray(arguments, "video_ids");
+        if (videoIds is null || videoIds.Count == 0)
+        {
+            throw new ToolExecutionException("video_ids must be a non-empty array of strings.", JsonRpcError.InvalidParamsCode);
+        }
+
+        var position = GetOptionalInt(arguments, "position");
+        if (position is < 0)
+        {
+            throw new ToolExecutionException("position must be >= 0.", JsonRpcError.InvalidParamsCode);
+        }
+
+        var command = new AddVideosToPlaylistCommand(
+            PlaylistId: playlistId,
+            VideoIds: videoIds,
+            Position: position);
+
+        var result = await _uploader.AddVideosToPlaylistAsync(command, cancellationToken).ConfigureAwait(false);
+
+        _logger.Info("Videos added to playlist", ("id", requestId), ("playlist_id", result.PlaylistId), ("count", result.ItemsAdded.Count));
+        return new
+        {
+            playlist_id = result.PlaylistId,
+            items_added = result.ItemsAdded.Select(item => new
+            {
+                video_id = item.VideoId,
+                playlist_item_id = item.PlaylistItemId,
+                position = item.Position
+            })
+        };
+    }
+
     private async Task<object> UpdateMetadataAsync(JsonElement arguments, object? requestId, CancellationToken cancellationToken)
     {
         EnsureAllowedProperties(arguments, new HashSet<string>(StringComparer.Ordinal)
@@ -284,6 +382,26 @@ public sealed class ToolDispatcher
             status = result.Status,
             privacy = result.Privacy,
             title = result.Title,
+            url = result.Url
+        };
+    }
+
+    private async Task<object> GetPlaylistAsync(JsonElement arguments, object? requestId, CancellationToken cancellationToken)
+    {
+        var playlistId = GetRequiredString(
+            arguments,
+            "playlist_id",
+            allowedProperties: new HashSet<string>(StringComparer.Ordinal) { "playlist_id" });
+
+        var result = await _videoReader.GetPlaylistAsync(playlistId, cancellationToken).ConfigureAwait(false);
+
+        _logger.Info("Playlist fetched", ("id", requestId), ("playlist_id", result.PlaylistId));
+        return new
+        {
+            playlist_id = result.PlaylistId,
+            title = result.Title,
+            privacy = result.Privacy,
+            item_count = result.ItemCount,
             url = result.Url
         };
     }
@@ -531,6 +649,21 @@ public sealed class ToolDispatcher
         }
 
         return parsed;
+    }
+
+    private static int? GetOptionalInt(JsonElement arguments, string propertyName)
+    {
+        if (!arguments.TryGetProperty(propertyName, out var property) || property.ValueKind is JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (property.ValueKind is JsonValueKind.Number && property.TryGetInt32(out var intValue))
+        {
+            return intValue;
+        }
+
+        throw new ToolExecutionException($"Argument '{propertyName}' must be an integer.", JsonRpcError.InvalidParamsCode);
     }
 
     private sealed record ToolEntry(ToolDefinition Definition, Func<JsonElement, object?, CancellationToken, Task<object>> Handler);

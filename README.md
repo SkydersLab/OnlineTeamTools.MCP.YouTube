@@ -12,6 +12,12 @@
 
 Set via environment variables (preferred) or `appsettings.json` (`YouTube:*` keys).
 
+Env file discovery (shared + local):
+
+- Existing process env vars are never overwritten.
+- Local scope is checked first (`.env`, then `.env.local` in current directory / app base directory).
+- If no local env file is found, fallback is one-level-up `.env` (for example `Dev/.env` or `/apps/.env`).
+
 Required for tool execution:
 
 - `YOUTUBE_CLIENT_SECRETS_PATH` path to Google OAuth `client_secret.json`
@@ -89,6 +95,24 @@ Then send JSON-RPC lines over stdin.
 {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"youtube.get_video","arguments":{"video_id":"<video_id>"}}}
 ```
 
+`tools/call` create playlist
+
+```json
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"youtube.create_playlist","arguments":{"title":"Gym Mix March 2026","description":"Automated playlist from MCP","privacy":"unlisted"}}}
+```
+
+`tools/call` add videos to playlist
+
+```json
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"youtube.add_videos_to_playlist","arguments":{"playlist_id":"<playlist_id>","video_ids":["<video_id_1>","<video_id_2>"],"position":0}}}
+```
+
+`tools/call` get playlist
+
+```json
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"youtube.get_playlist","arguments":{"playlist_id":"<playlist_id>"}}}
+```
+
 ## Safety Defaults
 
 - Paths are restricted to `YOUTUBE_ALLOWED_ROOT`
@@ -113,3 +137,6 @@ dotnet publish -c Release -r osx-arm64 --self-contained false
 5. Call `youtube.upload_thumbnail`.
 6. Call `youtube.update_metadata`.
 7. Call `youtube.get_video`.
+8. Call `youtube.create_playlist`.
+9. Call `youtube.add_videos_to_playlist`.
+10. Call `youtube.get_playlist`.
